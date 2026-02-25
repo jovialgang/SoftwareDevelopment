@@ -1,0 +1,347 @@
+openapi: 3.0.3
+info:
+  title: Mini Task Tracker API
+  version: "1.0.0"
+  description: >
+    Simple educational API-first service for managing tasks.
+servers:
+  - url: http://localhost:8080
+    description: Local development server
+tags:
+  - name: Tasks
+    description: Basic operations for managing tasks.
+paths:
+  /tasks:
+    get:
+      tags:
+        - Tasks
+      summary: List all tasks
+      description: Retrieve all tasks currently stored in the service.
+      operationId: listTasks
+      responses:
+        '200':
+          description: List of tasks
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Task'
+              examples:
+                example:
+                  summary: List of tasks
+                  value:
+                    - id: 1
+                      title: "Buy groceries"
+                      description: "Milk, bread, eggs"
+                      status: "todo"
+                      created_at: "2026-02-25T10:00:00Z"
+                    - id: 2
+                      title: "Finish lab work"
+                      status: "in_progress"
+                      created_at: "2026-02-25T11:00:00Z"
+    post:
+      tags:
+        - Tasks
+      summary: Create a new task
+      description: Create a new task with the given data.
+      operationId: createTask
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateTaskRequest'
+            examples:
+              valid:
+                summary: Valid task creation
+                value:
+                  title: "Write report"
+                  description: "Report for software development course"
+                  status: "todo"
+      responses:
+        '201':
+          description: Task created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Task'
+              examples:
+                example:
+                  summary: Created task
+                  value:
+                    id: 3
+                    title: "Write report"
+                    description: "Report for software development course"
+                    status: "todo"
+                    created_at: "2026-02-25T12:00:00Z"
+        '400':
+          description: Invalid request body
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                missingTitle:
+                  summary: Missing title field
+                  value:
+                    code: 400
+                    message: "title is required"
+  /tasks/{id}:
+    get:
+      tags:
+        - Tasks
+      summary: Get task by ID
+      description: Retrieve a single task by its unique identifier.
+      operationId: getTaskById
+      parameters:
+        - $ref: '#/components/parameters/TaskId'
+      responses:
+        '200':
+          description: Task found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Task'
+              examples:
+                example:
+                  summary: Example task
+                  value:
+                    id: 1
+                    title: "Buy groceries"
+                    description: "Milk, bread, eggs"
+                    status: "todo"
+                    created_at: "2026-02-25T10:00:00Z"
+        '400':
+          description: Invalid ID supplied
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                invalidId:
+                  summary: Non-numeric ID
+                  value:
+                    code: 400
+                    message: "invalid id"
+        '404':
+          description: Task not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                notFound:
+                  summary: Task does not exist
+                  value:
+                    code: 404
+                    message: "task not found"
+    delete:
+      tags:
+        - Tasks
+      summary: Delete task
+      description: Delete a task by its ID.
+      operationId: deleteTask
+      parameters:
+        - $ref: '#/components/parameters/TaskId'
+      responses:
+        '200':
+          description: Task deleted successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MessageResponse'
+              examples:
+                example:
+                  summary: Deletion message
+                  value:
+                    message: "task deleted"
+        '400':
+          description: Invalid ID supplied
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                invalidId:
+                  summary: Non-numeric ID
+                  value:
+                    code: 400
+                    message: "invalid id"
+        '404':
+          description: Task not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                notFound:
+                  summary: Task does not exist
+                  value:
+                    code: 404
+                    message: "task not found"
+  /tasks/{id}/status:
+    patch:
+      tags:
+        - Tasks
+      summary: Update task status
+      description: Update the status of a task by its ID.
+      operationId: updateTaskStatus
+      parameters:
+        - $ref: '#/components/parameters/TaskId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateTaskStatusRequest'
+            examples:
+              toInProgress:
+                summary: Move task into progress
+                value:
+                  status: "in_progress"
+              toDone:
+                summary: Mark task as done
+                value:
+                  status: "done"
+      responses:
+        '200':
+          description: Task status updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Task'
+              examples:
+                example:
+                  summary: Updated task
+                  value:
+                    id: 1
+                    title: "Buy groceries"
+                    description: "Milk, bread, eggs"
+                    status: "done"
+                    created_at: "2026-02-25T10:00:00Z"
+        '400':
+          description: Invalid status or ID supplied
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                invalidStatus:
+                  summary: Invalid status value
+                  value:
+                    code: 400
+                    message: "invalid status"
+        '404':
+          description: Task not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                notFound:
+                  summary: Task does not exist
+                  value:
+                    code: 404
+                    message: "task not found"
+components:
+  parameters:
+    TaskId:
+      name: id
+      in: path
+      required: true
+      description: Numeric ID of the task.
+      schema:
+        type: integer
+        format: int64
+        example: 1
+  schemas:
+    Task:
+      type: object
+      description: Task entity.
+      required:
+        - id
+        - title
+        - status
+        - created_at
+      properties:
+        id:
+          type: integer
+          format: int64
+          description: Unique identifier of the task.
+          example: 1
+        title:
+          type: string
+          description: Short title of the task.
+          example: "Buy groceries"
+        description:
+          type: string
+          nullable: true
+          description: Optional detailed description of the task.
+          example: "Milk, bread, eggs"
+        status:
+          $ref: '#/components/schemas/TaskStatus'
+        created_at:
+          type: string
+          format: date-time
+          description: Task creation timestamp in UTC.
+          example: "2026-02-25T10:00:00Z"
+    TaskStatus:
+      type: string
+      description: Current status of the task.
+      enum:
+        - todo
+        - in_progress
+        - done
+      example: "todo"
+    CreateTaskRequest:
+      type: object
+      description: Request body for creating a new task.
+      required:
+        - title
+      properties:
+        title:
+          type: string
+          description: Short title of the task.
+          example: "Write report"
+        description:
+          type: string
+          nullable: true
+          description: Optional detailed description of the task.
+          example: "Report for software development course"
+        status:
+          $ref: '#/components/schemas/TaskStatus'
+    UpdateTaskStatusRequest:
+      type: object
+      description: Request body for updating task status.
+      required:
+        - status
+      properties:
+        status:
+          $ref: '#/components/schemas/TaskStatus'
+    ErrorResponse:
+      type: object
+      description: Standard error response.
+      required:
+        - code
+        - message
+      properties:
+        code:
+          type: integer
+          format: int32
+          description: HTTP status code.
+          example: 400
+        message:
+          type: string
+          description: Human-readable error message.
+          example: "task not found"
+    MessageResponse:
+      type: object
+      description: Simple message response.
+      required:
+        - message
+      properties:
+        message:
+          type: string
+          description: Human-readable message.
+          example: "task deleted"
