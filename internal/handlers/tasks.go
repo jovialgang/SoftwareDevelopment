@@ -8,6 +8,7 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	"mini-task-tracker/internal/models"
+	appmetrics "mini-task-tracker/internal/metrics"
 	"mini-task-tracker/internal/storage"
 )
 
@@ -111,6 +112,11 @@ func (h *TaskHandler) CreateTask(w http.ResponseWriter, r *http.Request) {
 	}
 
 	task := h.storage.CreateTask(req.Title, req.Description, status)
+
+	// Обновляем бизнес-метрики.
+	appmetrics.TasksCreatedTotal.Inc()
+	appmetrics.TasksTotal.WithLabelValues(string(task.Status)).Inc()
+
 	writeJSON(w, http.StatusCreated, task)
 }
 
@@ -148,16 +154,31 @@ func (h *TaskHandler) UpdateTaskStatus(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	status, valid := parseStatus(req.Status)
+	newStatus, valid := parseStatus(req.Status)
 	if !valid {
 		writeError(w, http.StatusBadRequest, "invalid status")
 		return
 	}
 
-	task, found := h.storage.UpdateTaskStatus(id, status)
+	// Получаем текущий статус ДО обновления, чтобы зафиксировать переход.
+	oldTask, found := h.storage.GetTaskByID(id)
 	if !found {
 		writeError(w, http.StatusNotFound, "task not found")
 		return
+	}
+	oldStatus := oldTask.Status
+
+	task, found := h.storage.UpdateTaskStatus(id, newStatus)
+	if !found {
+		writeError(w, http.StatusNotFound, "task not found")
+		return
+	}
+
+	// Обновляем бизнес-метрики только при реальном изменении статуса.
+	if oldStatus != newStatus {
+		appmetrics.TasksStatusChangesTotal.WithLabelValues(string(oldStatus), string(newStatus)).Inc()
+		appmetrics.TasksTotal.WithLabelValues(string(oldStatus)).Dec()
+		appmetrics.TasksTotal.WithLabelValues(string(newStatus)).Inc()
 	}
 
 	writeJSON(w, http.StatusOK, task)
@@ -170,14 +191,22 @@ func (h *TaskHandler) DeleteTask(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	deleted := h.storage.DeleteTask(id)
-	if !deleted {
+	// Получаем задачу ДО удаления, чтобы знать её статус для метрик.
+	task, found := h.storage.GetTaskByID(id)
+	if !found {
+		writeError(w, http.StatusNotFound, "task not found")
+		return
+	}
+	taskStatus := task.Status
+
+	if !h.storage.DeleteTask(id) {
 		writeError(w, http.StatusNotFound, "task not found")
 		return
 	}
 
-	writeJSON(w, http.StatusOK, messageResponse{
-		Message: "task deleted",
-	})
-}
+	// Обновляем бизнес-метрики.
+	appmetrics.TasksDeletedTotal.Inc()
+	appmetrics.TasksTotal.WithLabelValues(string(taskStatus)).Dec()
 
+	writeJSON(w, http.StatusOK, messageResponse{Message: "task deleted"})
+}

@@ -27,6 +27,9 @@ Mini Task Tracker — это простой сервис для управлен
 - `net/http`
 - `github.com/go-chi/chi/v5`
 - `github.com/swaggo/http-swagger`
+- `github.com/prometheus/client_golang` — метрики
+- Prometheus — сбор и хранение метрик
+- Grafana — визуализация дашбордов
 
 ---
 
@@ -37,24 +40,36 @@ Mini Task Tracker — это простой сервис для управлен
 ├── openapi.yaml
 ├── README.md
 ├── go.mod
+├── Makefile
 ├── cmd/
 │   └── server/
 │       └── main.go
 ├── internal/
 │   ├── handlers/
 │   │   └── tasks.go
+│   ├── metrics/
+│   │   └── metrics.go      # Prometheus-метрики
 │   ├── models/
 │   │   └── task.go
 │   └── storage/
 │       └── memory.go
-└── Makefile
+└── configs/
+    ├── prometheus.yml       # конфиг Prometheus
+    └── grafana/
+        ├── provisioning/
+        │   ├── datasources/ # авто-подключение Prometheus
+        │   └── dashboards/  # провайдер дашбордов
+        └── dashboards/
+            └── tasks.json   # готовый дашборд
 ```
 
 ---
 
 ## Как запустить
 
-1. Установить зависимости (из корня проекта):
+### Только приложение
+
+1. Установить зависимости:
 
 ```bash
 go mod tidy
@@ -64,11 +79,34 @@ go mod tidy
 
 ```bash
 go run ./cmd/server
-# или
-go run cmd/server/main.go
+# или через Makefile
+make run
 ```
 
 Сервер поднимется на `http://localhost:8080`.
+
+### Полный стек (приложение + Prometheus + Grafana)
+
+1. Установить Prometheus и Grafana через Homebrew (один раз):
+
+```bash
+make install-tools
+```
+
+2. Запустить всё одной командой:
+
+```bash
+make run-all
+```
+
+Prometheus и Grafana запустятся в фоне, приложение — на переднем плане.
+`Ctrl-C` останавливает приложение. Чтобы остановить Prometheus и Grafana:
+
+```bash
+make stop
+```
+
+Сервисы также можно запустить по отдельности: `make run-prometheus`, `make run-grafana`.
 
 ---
 
@@ -87,6 +125,99 @@ http://localhost:8080/openapi.yaml
 ```
 
 Swagger UI автоматически использует этот файл как источник схемы.
+
+---
+
+## Метрики и мониторинг
+
+### Адреса сервисов
+
+| Сервис | URL | Что смотреть |
+|---|---|---|
+| Приложение | http://localhost:8080/metrics | Raw Prometheus-метрики (текстовый формат) |
+| Prometheus | http://localhost:9090 | PromQL, статус targets, графики |
+| Grafana | http://localhost:3000 | Готовый дашборд «Mini Task Tracker» |
+
+Grafana в dev-режиме работает без логина. Логин/пароль при необходимости: `admin` / `admin`.
+
+### Реализованные метрики
+
+**HTTP (инфраструктурные):**
+
+| Метрика | Тип | Лейблы | Описание |
+|---|---|---|---|
+| `http_requests_total` | Counter | `method`, `path`, `status_code` | Общее число HTTP-запросов |
+| `http_request_duration_seconds` | Histogram | `method`, `path` | Время обработки запроса |
+| `http_requests_in_flight` | Gauge | — | Запросы в обработке прямо сейчас |
+
+**Продуктовые:**
+
+| Метрика | Тип | Лейблы | Описание |
+|---|---|---|---|
+| `tasks_total` | Gauge | `status` | Текущее число задач по статусу |
+| `tasks_created_total` | Counter | — | Всего создано задач |
+| `tasks_deleted_total` | Counter | — | Всего удалено задач |
+| `tasks_status_changes_total` | Counter | `from`, `to` | Переходы между статусами |
+
+### Примеры PromQL-запросов
+
+```promql
+# RPS по каждому эндпоинту
+sum(rate(http_requests_total[1m])) by (method, path)
+
+# Медианная латентность
+histogram_quantile(0.50, sum(rate(http_request_duration_seconds_bucket[1m])) by (le))
+
+# p99 латентность по маршруту
+histogram_quantile(0.99, sum(rate(http_request_duration_seconds_bucket[1m])) by (le, path))
+
+# Доля ошибок 4xx+5xx
+sum(rate(http_requests_total{status_code=~"[45].."}[1m])) / sum(rate(http_requests_total[1m]))
+
+# Текущее число задач по статусам
+tasks_total
+
+# Темп создания задач (в час)
+rate(tasks_created_total[5m]) * 3600
+
+# Какие переходы статусов происходят чаще всего
+topk(5, sum(rate(tasks_status_changes_total[5m])) by (from, to))
+```
+
+### Как убедиться что метрики работают
+
+1. **Запустить стек** и создать несколько задач:
+
+```bash
+make run-all
+
+# В другом терминале:
+curl -s -X POST http://localhost:8080/tasks \
+  -H 'Content-Type: application/json' \
+  -d '{"title": "test task"}' | jq
+
+curl -s -X POST http://localhost:8080/tasks \
+  -H 'Content-Type: application/json' \
+  -d '{"title": "second task", "status": "in_progress"}' | jq
+```
+
+2. **Проверить raw-метрики** приложения:
+
+```bash
+curl -s http://localhost:8080/metrics | grep -E "^(tasks_|http_requests_total)"
+```
+
+Ожидаемый вывод (после создания 2 задач):
+```
+http_requests_total{method="POST",path="/tasks/",status_code="201"} 2
+tasks_created_total 2
+tasks_total{status="in_progress"} 1
+tasks_total{status="todo"} 1
+```
+
+3. **Prometheus** → http://localhost:9090/targets — статус `mini-task-tracker` должен быть **UP**.
+
+4. **Grafana** → http://localhost:3000 → дашборд **Mini Task Tracker** — панели показывают данные.
 
 ---
 

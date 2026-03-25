@@ -24,3 +24,6 @@
 *.log
 coverage.out
 
+# Данные Prometheus и Grafana (генерируются при запуске make run-all)
+/data/
+

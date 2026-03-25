@@ -1,0 +1,13 @@
+apiVersion: 1
+
+providers:
+  - name: "Mini Task Tracker"
+    orgId: 1
+    type: file
+    disableDeletion: false
+    updateIntervalSeconds: 10
+    allowUiUpdates: true
+    options:
+      # Путь задаётся через переменную окружения GF_DASHBOARD_PATH,
+      # которую выставляет Makefile при запуске Grafana.
+      path: ${GF_DASHBOARD_PATH}
