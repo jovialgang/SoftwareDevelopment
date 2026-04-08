@@ -1,4 +1,4 @@
-.PHONY: run tidy run-all run-prometheus run-grafana run-loki run-alloy stop install-tools
+.PHONY: run tidy run-all run-prometheus run-grafana run-loki run-tempo run-alloy stop install-tools
 
 # ─────────────────────────────────────────────
 # Разработка
@@ -23,10 +23,14 @@ stop:
 	@pkill -f "prometheus --config.file" 2>/dev/null || true
 	@pkill -f "grafana server" 2>/dev/null || true
 	@pkill -f "loki -config.file" 2>/dev/null || true
+	@pkill -f "tempo -config.file" 2>/dev/null || true
 	@pkill -f "alloy run" 2>/dev/null || true
 	@lsof -ti:8080 | xargs kill 2>/dev/null || true
 	@lsof -ti:3100 | xargs kill 2>/dev/null || true
+	@lsof -ti:3200 | xargs kill 2>/dev/null || true
+	@lsof -ti:4317 | xargs kill 2>/dev/null || true
 	@lsof -ti:12345 | xargs kill 2>/dev/null || true
+	@lsof -ti:14317 | xargs kill 2>/dev/null || true
 	@echo "✓ Стек остановлен."
 
 # ─────────────────────────────────────────────
@@ -58,6 +62,24 @@ run-grafana:
 run-loki:
 	@mkdir -p data/loki
 	loki -config.file=configs/loki.yml
+
+run-tempo:
+	@mkdir -p data/tempo
+	@bash -c '\
+		TEMPO_DOCKER_CONFIG="/tmp/mini-task-tracker-tempo.yml"; \
+		if command -v tempo >/dev/null 2>&1; then \
+			tempo -config.file=configs/tempo.yml; \
+		elif command -v docker >/dev/null 2>&1; then \
+			cp configs/tempo.yml "$$TEMPO_DOCKER_CONFIG"; \
+			docker rm -f mini-task-tracker-tempo >/dev/null 2>&1 || true; \
+			docker run --rm --name mini-task-tracker-tempo \
+				-p 3200:3200 -p 4317:4317 \
+				-v "$$TEMPO_DOCKER_CONFIG:/etc/tempo/tempo.yml:ro" \
+				grafana/tempo:2.9.0 -config.file=/etc/tempo/tempo.yml; \
+		else \
+			echo "✗ Не найден tempo и docker недоступен."; \
+			exit 1; \
+		fi'
 
 run-alloy:
 	@mkdir -p data/logs data/alloy
